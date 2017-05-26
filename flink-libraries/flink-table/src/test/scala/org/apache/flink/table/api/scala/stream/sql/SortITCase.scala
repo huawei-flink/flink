@@ -40,6 +40,17 @@ import org.apache.flink.streaming.api.functions.sink.RichSinkFunction
 
 class SortITCase extends StreamingWithStateTestBase {
 
+    val data = List(
+    (1L, 1, "Hello"),
+    (2L, 2, "Hello"),
+    (3L, 3, "Hello"),
+    (4L, 4, "Hello"),
+    (5L, 5, "Hello"),
+    (6L, 6, "Hello"),
+    (7L, 7, "Hello World"),
+    (8L, 8, "Hello World"),
+    (20L, 20, "Hello World"))
+  
   @Test
   def testEventTimeOrderBy(): Unit = {
     val data = Seq(
@@ -111,6 +122,41 @@ class SortITCase extends StreamingWithStateTestBase {
       "20")
     assertEquals(expected, SortITCase.testResults)
   }
+  
+   @Test
+  def testTimeOrderBy(): Unit = {
+     val env = StreamExecutionEnvironment.getExecutionEnvironment
+    val tEnv = TableEnvironment.getTableEnvironment(env)
+    StreamITCase.testResults = mutable.MutableList()
+
+    // for sum aggregation ensure that every time the order of each element is consistent
+    env.setParallelism(1)
+
+    val t1 = env.fromCollection(data).toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
+    tEnv.registerTable("s1", t1)
+    
+    var  sqlquery="SELECT a FROM s1 ORDER BY proctime ASC OFFSET 2"
+    
+    val result = tEnv.sql(sqlquery).toDataStream[Row]
+    result.addSink(new StringRowSelectorSink(0)).setParallelism(1)
+    env.execute()
+
+    //Sort does not do project. Hence it will output also the ordering proctime field 
+    val expected = mutable.MutableList(
+      "1",
+      "2",
+      "3",
+      "4", 
+      "5",
+      "6",
+      "7",
+      "8",
+      "20")
+    
+    expected.clear()
+    assertEquals(expected, StreamITCase.testResults)
+  }
+  
 }
 
 object SortITCase {
