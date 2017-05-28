@@ -98,6 +98,116 @@ object SortUtil {
 
   }
   
+  /**
+   * Function creates [org.apache.flink.streaming.api.functions.ProcessFunction] for sorting   
+   * with offset elements based on rowtime and potentially other fields with
+   * @param collationSort The Sort collation list
+   * @param sortOffset The offset indicator
+   * @param inputType input row type
+   * @param inputTypeInfo input type information
+   * @param execCfg table environment execution configuration
+   * @return org.apache.flink.streaming.api.functions.ProcessFunction
+   */
+  private[flink] def createRowTimeSortFunctionRetractionOffset(
+    collationSort: RelCollation,
+    sortOffset: RexNode,
+    inputType: RelDataType,
+    inputTypeInfo: TypeInformation[Row],
+    execCfg: ExecutionConfig): ProcessFunction[CRow, CRow] = {
+
+    val keySortFields = getSortFieldIndexList(collationSort)
+    //drop time from comparison
+    val keyIndexesNoTime = keySortFields.slice(1, keySortFields.size)
+    val booleanOrderings = getSortFieldDirectionBooleanList(collationSort)
+    val booleanDirectionsNoTime = booleanOrderings.slice(1, booleanOrderings.size)
+    
+    val fieldComps = createFieldComparators(
+      inputType, 
+      keyIndexesNoTime, 
+      booleanDirectionsNoTime,
+      execCfg)
+    val fieldCompsRefs = fieldComps.asInstanceOf[Array[TypeComparator[AnyRef]]]
+    
+    val rowComp = new RowComparator(
+       inputType.getFieldCount,
+       keyIndexesNoTime,
+       fieldCompsRefs,
+       new Array[TypeSerializer[AnyRef]](0), //used only for object comparisons
+       booleanDirectionsNoTime)
+      
+    val collectionRowComparator = new CollectionRowComparator(rowComp)
+    
+    val inputCRowType = CRowTypeInfo(inputTypeInfo)
+    
+    val offsetInt = sortOffset.asInstanceOf[RexLiteral].getValue.asInstanceOf[JBigDecimal].intValue
+    
+    new RowTimeSortProcessFunctionOffset(
+      offsetInt,
+      inputCRowType,
+      collectionRowComparator)
+
+  }
+  
+  
+  /**
+   * Function creates [org.apache.flink.streaming.api.functions.ProcessFunction] for sorting   
+   * with (offset and) fetch elements based on rowtime and potentially other fields with
+   * @param collationSort The Sort collation list
+   * @param sortOffset The offset indicator
+   * @param sortFetch The fetch indicator
+   * @param inputType input row type
+   * @param inputTypeInfo input type information
+   * @param execCfg table environment execution configuration
+   * @return org.apache.flink.streaming.api.functions.ProcessFunction
+   */
+  private[flink] def createRowTimeSortFunctionRetractionOffsetFetch(
+    collationSort: RelCollation,
+    sortOffset: RexNode,
+    sortFetch: RexNode,
+    inputType: RelDataType,
+    inputTypeInfo: TypeInformation[Row],
+    execCfg: ExecutionConfig): ProcessFunction[CRow, CRow] = {
+
+    val keySortFields = getSortFieldIndexList(collationSort)
+    //drop time from comparison
+    val keyIndexesNoTime = keySortFields.slice(1, keySortFields.size)
+    val booleanOrderings = getSortFieldDirectionBooleanList(collationSort)
+    val booleanDirectionsNoTime = booleanOrderings.slice(1, booleanOrderings.size)
+    
+    val fieldComps = createFieldComparators(
+      inputType, 
+      keyIndexesNoTime, 
+      booleanDirectionsNoTime,
+      execCfg)
+    val fieldCompsRefs = fieldComps.asInstanceOf[Array[TypeComparator[AnyRef]]]
+    
+    val rowComp = new RowComparator(
+       inputType.getFieldCount,
+       keyIndexesNoTime,
+       fieldCompsRefs,
+       new Array[TypeSerializer[AnyRef]](0), //used only for object comparisons
+       booleanDirectionsNoTime)
+      
+    val collectionRowComparator = new CollectionRowComparator(rowComp)
+    
+    val inputCRowType = CRowTypeInfo(inputTypeInfo)
+    
+    val offsetInt = if(sortOffset != null) {
+      sortOffset.asInstanceOf[RexLiteral].getValue.asInstanceOf[JBigDecimal].intValue
+    } else {
+      0
+    }
+    val fetchInt = sortFetch.asInstanceOf[RexLiteral].getValue.asInstanceOf[JBigDecimal].intValue
+        
+    
+    new RowTimeSortProcessFunctionOffsetFetch(
+      offsetInt,
+      fetchInt,
+      inputCRowType,
+      collectionRowComparator)
+
+  }
+  
   
   /**
    * Function creates [org.apache.flink.streaming.api.functions.ProcessFunction] for sorting 

@@ -57,8 +57,6 @@ class RowTimeSortProcessFunctionOffsetFetch(
 
   Preconditions.checkNotNull(rowComparator)
 
-  private val sortArray: ArrayList[Row] = new ArrayList[Row]
-  
   // the state which keeps all the events that are not expired.
   // Each timestamp will contain an associated list with the events 
   // received at that timestamp
@@ -90,13 +88,12 @@ class RowTimeSortProcessFunctionOffsetFetch(
       new ValueStateDescriptor[Long]("lastTriggeringTsState", classOf[Long])
     lastTriggeringTsState = getRuntimeContext.getState(lastTriggeringTsDescriptor)
 
+    val arity:Integer = inputRowType.getArity
     if (outputC == null) {
-      val arity:Integer = inputRowType.getArity
       outputC = new CRow(Row.of(arity), true)
     }
     
     if (outputR == null) {
-      val arity:Integer = inputRowType.getArity
       outputR = new CRow(Row.of(arity), false)
     }
   }
@@ -148,6 +145,7 @@ class RowTimeSortProcessFunctionOffsetFetch(
           outputR.row = inputs.get(dataListIndex)   
           out.collect(outputR)
         }
+        dataListIndex += 1
       }
     }
     
@@ -155,33 +153,26 @@ class RowTimeSortProcessFunctionOffsetFetch(
     inputs = dataState.get(timestamp)
 
     if (null != inputs) {
-      dataListIndex = 0
-      sortArray.clear()
-      while (dataListIndex < inputs.size()) {
-        val curRow = inputs.get(dataListIndex)
-        sortArray.add(curRow)
-        dataListIndex += 1
-      }
-      
-      //if we do not rely on java collections to do the sort we could implement 
-      //an insertion sort as we get the elements  from the state
-      Collections.sort(sortArray, rowComparator)
+
+      Collections.sort(inputs, rowComparator)
     
       //we need to build the output and emit the events in order
       dataListIndex = 0
-      while (dataListIndex < sortArray.size) {
+      while (dataListIndex < inputs.size) {
         if (dataListIndex >= offset && dataListIndex < adjustedFetchLimit) {
-          outputC.row = sortArray.get(dataListIndex)  
+          outputC.row = inputs.get(dataListIndex)  
           out.collect(outputC)
-          dataListIndex += 1
         }
+        dataListIndex += 1
       }
     
-      //we need to  clear the events processed
-      dataState.remove(lastTriggeringTs)
-      lastTriggeringTsState.update(timestamp)
-    
+      //we need to  clear the events processed and keep the sort list for retracting next time
+      dataState.put(timestamp, inputs)
     }
+    
+    //we need to  clear the events retracted
+    dataState.remove(lastTriggeringTs)
+    lastTriggeringTsState.update(timestamp)
   }
   
 }

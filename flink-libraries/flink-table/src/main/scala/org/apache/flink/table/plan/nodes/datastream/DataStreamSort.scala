@@ -136,11 +136,11 @@ class DataStreamSort(
         case _ if FlinkTypeFactory.isRowtimeIndicatorType(timeType) =>
             (sortOffset, sortFetch) match {
               case (_: RexNode, _: RexNode)  => // offset and fetch needs retraction
-                throw new TableException("SQL/Table does not support sort with offset and fetch") 
+                createSortRowTimeRetractionOffsetFetch(inputDS, execCfg)
               case (_, _: RexNode) => // fetch needs retraction
-                throw new TableException("SQL/Table does not support sort with fetch")
+                createSortRowTimeRetractionOffsetFetch(inputDS, execCfg)
               case (_: RexNode, _) =>  // offset needs retraction
-                throw new TableException("SQL/Table does not support sort with offset")
+                 createSortRowTimeRetractionOffset(inputDS, execCfg)
               case _ => createSortRowTime(inputDS, execCfg)  //sort can be done without retraction
             }
         case _ =>
@@ -215,6 +215,51 @@ class DataStreamSort(
         .returns(returnTypeInfo)
         .asInstanceOf[DataStream[CRow]]
     }   
+  }
+  
+  /**
+   * Create Sort logic based on processing time with retraction and offset
+   */
+  def createSortRowTimeRetractionOffset(
+    inputDS: DataStream[CRow],
+    execCfg: ExecutionConfig): DataStream[CRow] = {
+   
+    val returnTypeInfo = CRowTypeInfo(schema.physicalTypeInfo)
+       
+    val processFunction = SortUtil.createRowTimeSortFunctionRetractionOffset(
+      sortCollation,
+      sortOffset, 
+      inputSchema.logicalType, 
+      inputSchema.physicalTypeInfo, 
+      execCfg)
+      
+    inputDS.keyBy(new NullByteKeySelector[CRow])
+      .process(processFunction).setParallelism(1).setMaxParallelism(1)
+      .returns(returnTypeInfo)
+      .asInstanceOf[DataStream[CRow]]
+  }
+  
+  /**
+   * Create Sort logic based on processing time with retraction and (offset and) fetch
+   */
+  def createSortRowTimeRetractionOffsetFetch(
+    inputDS: DataStream[CRow],
+    execCfg: ExecutionConfig): DataStream[CRow] = {
+   
+    val returnTypeInfo = CRowTypeInfo(schema.physicalTypeInfo)
+       
+    val processFunction = SortUtil.createRowTimeSortFunctionRetractionOffsetFetch(
+      sortCollation,
+      sortOffset,
+      sortFetch,
+      inputSchema.logicalType, 
+      inputSchema.physicalTypeInfo, 
+      execCfg)
+      
+    inputDS.keyBy(new NullByteKeySelector[CRow])
+      .process(processFunction).setParallelism(1).setMaxParallelism(1)
+      .returns(returnTypeInfo)
+      .asInstanceOf[DataStream[CRow]]
   }
   
   /**
